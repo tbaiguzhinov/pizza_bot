@@ -231,3 +231,36 @@ def create_field(access_token, name, slug, field_type, description, required, en
     )
     response.raise_for_status()
     return response.json()
+
+
+def get_flow(access_token, flowId):
+    """Get a flow by flowId."""
+    response = requests.get(
+        f'https://api.moltin.com/v2/flows/{flowId}',
+        headers={
+            'Authorization': f'Bearer {access_token}',
+        },
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def create_entry(access_token, flow_slug, field_values):
+    """Create an entry in flow."""
+    json = {
+        'data': {
+            'type': 'entry',
+        }
+    }
+    for field_slug, field_value in field_values.items():
+        json['data'][field_slug] = field_value
+    response = requests.post(
+        f'https://api.moltin.com/v2/flows/{flow_slug}/entries',
+        headers={
+            'Authorization': f'Bearer {access_token}',
+            'Content-Type': 'application/json',
+        },
+        json=json,
+    )
+    response.raise_for_status()
+    return response.json()

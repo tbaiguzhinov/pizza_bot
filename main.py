@@ -1,7 +1,17 @@
 import os
 
+import requests
 from dotenv import load_dotenv
-from store import (authenticate, create_flow, create_field)
+
+from store import (authenticate, get_flow, create_entry)
+
+
+def get_addresses():
+    response = requests.get(
+        'https://dvmn.org/media/filer_public/90/90/9090ecbf-249f-42c7-8635-a96985268b88/addresses.json',
+    )
+    response.raise_for_status()
+    return response.json()
 
 
 def main():
@@ -10,62 +20,24 @@ def main():
     client_secret = os.getenv('MOLTIN_CLIENT_SECRET')
     token = authenticate(client_id, client_secret)
 
-    flow_payload = create_flow(
-        access_token=token['token'],
-        name='Pizzeria',
-        slug='pizzeria-1',
-        description='',
-        enabled=True,
-    )
-    flowId = flow_payload['data']['id']
-    print(flowId)
-    fields = [
-        {
-            'name': 'Address',
-            'slug': 'address',
-            'field_type': 'string',
-            'description': 'Address field',
-            'required': True,
-            'enabled': True,
-        },
-        {
-            'name': 'Alias',
-            'slug': 'alias',
-            'field_type': 'string',
-            'description': 'Alias field',
-            'required': True,
-            'enabled': True
-        },
-        {
-            'name': 'Longitude',
-            'slug': 'longitude',
-            'field_type': 'float',
-            'description': 'Longitude field',
-            'required': True,
-            'enabled': True
-        },
-        {
-            'name': 'Latitude',
-            'slug': 'latitude',
-            'field_type': 'float',
-            'description': 'Latitude field',
-            'required': True,
-            'enabled': True,
-        }
-    ]
-    for field in fields:
-        field_payload = create_field(
-            access_token=token['token'],
-            name=field['name'],
-            slug=field['slug'],
-            field_type=field['field_type'],
-            description=field['description'],
-            required=field['required'],
-            enabled=field['enabled'],
-            flowId=flowId,
-            )
-        print(field_payload['data']['id'])
+    pizzeriaFlowId = '4529323b-85cb-48d1-bae5-35381049131c'
 
+    flow = get_flow(token['token'], pizzeriaFlowId)
+
+    addresses = get_addresses()
+
+    for item in addresses:
+        fields_values = {
+            'address': item['address']['full'],
+            'alias': item['alias'],
+            'longitude': float(item['coordinates']['lon']),
+            'latitude': float(item['coordinates']['lat']),
+        }
+        entry_payload = create_entry(
+            access_token=token['token'],
+            flow_slug=flow['data']['slug'],
+            field_values=fields_values)
+        print(entry_payload['data'])
 
 if __name__ == '__main__':
     main()
