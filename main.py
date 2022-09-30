@@ -17,6 +17,7 @@ from get_logger import TelegramLogsHandler
 from store import (add_to_cart, authenticate, create_customer,
                    get_all_products, get_cart, get_cart_items, get_file,
                    get_photo, get_product, remove_product_from_cart)
+from get_location import get_coordinates
 
 logger = logging.getLogger('Logger')
 
@@ -176,7 +177,7 @@ def handle_cart(db, update: Update, context: CallbackContext):
             chat_id=update.effective_chat.id,
             text='Пожалуйста, укажите Вашу почту:',
         )
-        return 'OBTAIN_EMAIL'
+        return 'OBTAIN_GEOLOCATION'
     else:
         remove_product_from_cart(
             product_id=callback,
@@ -197,12 +198,12 @@ def obtain_email(db, update: Update, context: CallbackContext):
             text=text,
         )
         create_customer(email, db.get('token').decode("utf-8"))
-        text = 'Спасибо! С Вами свяжется менеждер по поводу Вашего заказа.'
+        text = 'Хорошо, пришлите нам ваш адрес текстом или геолокацию.'
         context.bot.send_message(
             chat_id=update.effective_chat.id,
             text=text,
         )
-        return 'START'
+        return 'OBTAIN_GEOLOCATION'
     except (EmailSyntaxError, EmailNotValidError) as text:
         context.bot.send_message(
             chat_id=update.effective_chat.id,
@@ -213,6 +214,35 @@ def obtain_email(db, update: Update, context: CallbackContext):
             text='Пожалуйста, укажите Вашу почту:',
         )
         return 'OBTAIN_EMAIL'
+
+
+def obtain_geolocation(db, update: Update, context: CallbackContext):
+    """Get users geolocation."""
+    message = None
+    if update.edited_message:
+        message = update.edited_message
+    else:
+        message = update.message
+    if message.location:
+        current_pos = (message.location.latitude, message.location.longitude)
+        context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=current_pos,
+            )
+    else:
+        current_pos = get_coordinates(message.text, db.get('yandex_key').decode("utf-8"))
+        if current_pos:
+            context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=current_pos,
+            )
+        else:
+            context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text='Не удалось определить адрес, попробуйте еще раз.',
+            )
+            return 'OBTAIN_GEOLOCATION'
+    return 'OBTAIN_EMAIL'
 
 
 def handle_users_reply(
@@ -240,6 +270,7 @@ def handle_users_reply(
         'HANDLE_DESCRIPTION': handle_description,
         'HANDLE_CART': handle_cart,
         'OBTAIN_EMAIL': obtain_email,
+        'OBTAIN_GEOLOCATION': obtain_geolocation,
     }
     state_handler = states_functions[user_state]
     try:
@@ -289,6 +320,7 @@ def main():
     
     db.set('token', moltin_token['token'])
     db.set('token_expiration', moltin_token['expires'])
+    db.set('yandex_key', os.getenv('YANDEX_KEY'))
     
     expiration = moltin_token['expires']
     logger.error(f'Token updated until {expiration}')
@@ -300,6 +332,8 @@ def main():
     dispatcher.add_handler(CallbackQueryHandler(handle_users_reply_partial))
     dispatcher.add_handler(MessageHandler(
         Filters.text, handle_users_reply_partial))
+    dispatcher.add_handler(MessageHandler(
+        Filters.location, handle_users_reply_partial))
     dispatcher.add_handler(CommandHandler('start', handle_users_reply_partial))
     dispatcher.add_error_handler(error_handler)
     updater.start_polling()
