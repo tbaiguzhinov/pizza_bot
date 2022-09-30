@@ -83,10 +83,10 @@ def get_cart_items(client_id, access_token):
 def add_to_cart(client_id, product_id, quantity, access_token):
     """Add a product to cart."""
     payload = {
-        "data": {
-            "id": product_id,
-            "type": "cart_item",
-            "quantity": quantity,
+        'data': {
+            'id': product_id,
+            'type': 'cart_item',
+            'quantity': quantity,
         }}
     response = requests.post(
         f'https://api.moltin.com/v2/carts/{client_id}/items',
@@ -173,7 +173,61 @@ def create_image_relationship(access_token, productId, imageId):
                 'type': 'main_image',
                 'id': imageId,
             },
-        }       
+        }
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def create_flow(access_token, name, slug, description, enabled):
+    """Create a flow."""
+    response = requests.post(
+        'https://api.moltin.com/v2/flows',
+        headers={
+            'Authorization': f'Bearer {access_token}',
+            'Content-Type': 'application/json',
+        },
+        json={
+            'data': {
+                'type': 'flow',
+                'name': name,
+                'slug': slug,
+                'description': description,
+                'enabled': enabled,
+            },
+        }
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def create_field(access_token, name, slug, field_type, description, required, enabled, flowId):
+    """Create a field in flow."""
+    response = requests.post(
+        'https://api.moltin.com/v2/fields',
+        headers={
+            'Authorization': f'Bearer {access_token}',
+            'Content-Type': 'application/json',
+        },
+        json={
+            'data': {
+                'type': 'field',
+                'name': name,
+                'slug': slug,
+                'field_type': field_type,
+                'description': description,
+                'required': required,
+                'enabled': enabled,
+                'relationships': {
+                    'flow': {
+                        'data': {
+                            'type': 'flow',
+                            'id': flowId,
+                        }
+                    }
+                },
+            },
+        }
     )
     response.raise_for_status()
     return response.json()
