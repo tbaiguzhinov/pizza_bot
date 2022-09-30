@@ -92,6 +92,8 @@ def add_to_cart(client_id, product_id, quantity, access_token):
         f'https://api.moltin.com/v2/carts/{client_id}/items',
         headers={
             'Authorization': f'Bearer {access_token}',
+            'Content-Type': 'application/json',
+            'X-MOLTIN-CURRENCY': 'RUB',
         },
         json=payload,
     )
