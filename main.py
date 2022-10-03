@@ -13,11 +13,12 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (CallbackContext, CallbackQueryHandler,
                           CommandHandler, Filters, MessageHandler, Updater)
 
+from get_location import get_closest_pizzeria, get_coordinates
 from get_logger import TelegramLogsHandler
 from store import (add_to_cart, authenticate, create_customer,
-                   get_all_products, get_cart, get_cart_items, get_file,
-                   get_photo, get_product, remove_product_from_cart)
-from get_location import get_coordinates
+                   get_all_pizzerias, get_all_products, get_cart,
+                   get_cart_items, get_file, get_photo, get_product,
+                   remove_product_from_cart, check_customer)
 
 logger = logging.getLogger('Logger')
 
@@ -73,7 +74,8 @@ def handle_menu(db, update: Update, context: CallbackContext):
     reply_markup = InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton('Добавить', callback_data=f'1,{product_id}'),
+                InlineKeyboardButton(
+                    'Добавить', callback_data=f'1,{product_id}'),
             ],
             [InlineKeyboardButton('Корзина', callback_data='cart')],
             [InlineKeyboardButton('Назад', callback_data='back')]]
@@ -197,7 +199,13 @@ def obtain_email(db, update: Update, context: CallbackContext):
             chat_id=update.effective_chat.id,
             text=text,
         )
-        create_customer(email, db.get('token').decode("utf-8"))
+        customer_id = check_customer(
+            email=email,
+            access_token=db.get('token').decode("utf-8")
+        )
+        print(customer_id)
+        if not customer_id:
+            create_customer(email, db.get('token').decode("utf-8"))
         text = 'Хорошо, пришлите нам ваш адрес текстом или геолокацию.'
         context.bot.send_message(
             chat_id=update.effective_chat.id,
@@ -225,23 +233,42 @@ def obtain_geolocation(db, update: Update, context: CallbackContext):
         message = update.message
     if message.location:
         current_pos = (message.location.latitude, message.location.longitude)
-        context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text=current_pos,
-            )
     else:
-        current_pos = get_coordinates(message.text, db.get('yandex_key').decode("utf-8"))
-        if current_pos:
-            context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text=current_pos,
-            )
+        current_pos = get_coordinates(
+            message.text, db.get('yandex_key').decode("utf-8"))
+    if current_pos:
+        pizzerias = get_all_pizzerias(
+            access_token=db.get('token').decode("utf-8"),
+        )
+        pizzeria = get_closest_pizzeria(current_pos, pizzerias)
+        address = pizzeria['address']
+        distance = pizzeria['distance']
+
+        if 0 <= distance <= 0.5:
+            distance = distance / 1000
+            message = textwrap.dedent(f"Можете забрать пиццу неподалеку? \
+            Она всего в {distance:.0f} метрах от вас! \
+            Вот ее адрес: {address}.\n\n\
+            А можем и бесплатно доставить, нам не сложно с:")
+        elif 0.5 < distance <= 5:
+            message = textwrap.dedent("Похоже, придется ехать до вас на самокате. \
+                Доставка будет стоить 100 рублей. Доставляем или самовывоз?")
+        elif 5 < distance < 20:
+            message = textwrap.dedent("Похоже, придется ехать до вас на самокате. \
+                Доставка будет стоить 300 рублей. Доставляем или самовывоз?")
         else:
-            context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text='Не удалось определить адрес, попробуйте еще раз.',
-            )
-            return 'OBTAIN_GEOLOCATION'
+            message = textwrap.dedent(f"Простите, но так далеко мы пиццу не доставим. \
+                Ближайшая пиццерия аж в {distance:.1f} километрах от вас!")
+        context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=f'{message}',
+        )
+    else:
+        context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text='Не могу распознать адрес.',
+        )
+        return 'OBTAIN_GEOLOCATION'
     return 'OBTAIN_EMAIL'
 
 
@@ -317,11 +344,11 @@ def main():
         os.getenv('MOLTIN_CLIENT_ID'),
         os.getenv('MOLTIN_CLIENT_SECRET')
     )
-    
+
     db.set('token', moltin_token['token'])
     db.set('token_expiration', moltin_token['expires'])
     db.set('yandex_key', os.getenv('YANDEX_KEY'))
-    
+
     expiration = moltin_token['expires']
     logger.error(f'Token updated until {expiration}')
     handle_users_reply_partial = partial(handle_users_reply, db)

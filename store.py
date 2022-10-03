@@ -112,6 +112,21 @@ def remove_product_from_cart(product_id, cart_id, access_token):
     response.raise_for_status()
 
 
+def check_customer(email, access_token):
+    """Get all customers and check if email exists."""
+    response = requests.get(
+        'https://api.moltin.com/v2/customers',
+        headers={
+            'Authorization': f'Bearer {access_token}',
+        },
+    )
+    response.raise_for_status()
+    payload = response.json()
+    for customer in payload['data']:
+        if customer['email'] == email:
+            return customer['id']
+
+
 def create_customer(email, access_token):
     """Create a customer."""
     response = requests.post(
@@ -266,3 +281,15 @@ def create_entry(access_token, flow_slug, field_values):
     )
     response.raise_for_status()
     return response.json()
+
+
+def get_all_pizzerias(access_token):
+    """Get all entries: pizzerias."""
+    response = requests.get(
+        'https://api.moltin.com/v2/flows/pizzeria-1/entries',
+        headers={
+            'Authorization': f'Bearer {access_token}',
+        },
+    )
+    response.raise_for_status()
+    return response.json()['data']

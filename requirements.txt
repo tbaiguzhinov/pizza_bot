@@ -4,3 +4,4 @@ transliterate==1.10.2
 redis==3.2.1
 python-telegram-bot==13.*
 email-validator==1.2.1
+geopy==2.2.0
