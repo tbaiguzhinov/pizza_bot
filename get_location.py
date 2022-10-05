@@ -34,13 +34,16 @@ def get_closest_pizzeria(coordinates, pizzerias):
     customer_lon, customer_lat = coordinates
     pizzerias_coords = []
     for pizzeria in pizzerias:
+        print(pizzeria)
         address = pizzeria['address']
         pizzeria_lon = pizzeria['longitude']
         pizzeria_lat = pizzeria['latitude']
+        courier = pizzeria['telegram_id_01']
         pizzerias_coords.append({
             'address': address,
             'longitude': pizzeria_lon,
             'latitude': pizzeria_lat,
+            'courier': courier,
             'distance': measure_distance(
                 customer_lon,
                 customer_lat,

@@ -18,7 +18,7 @@ from get_logger import TelegramLogsHandler
 from store import (add_to_cart, authenticate, create_customer,
                    get_all_pizzerias, get_all_products, get_cart,
                    get_cart_items, get_file, get_photo, get_product,
-                   remove_product_from_cart, check_customer)
+                   remove_product_from_cart, check_customer, create_entry)
 
 logger = logging.getLogger('Logger')
 
@@ -90,39 +90,44 @@ def handle_menu(db, update: Update, context: CallbackContext):
     return "HANDLE_DESCRIPTION"
 
 
+def get_customer_cart(db, client_id):
+    cart_items = get_cart_items(client_id, db.get('token').decode("utf-8"))
+    cart_payload = get_cart(client_id, db.get('token').decode("utf-8"))
+    grand_total = cart_payload[
+        'meta']['display_price']['with_tax']['formatted']
+    amount = 0
+    text = []
+    keyboard = []
+    for item in cart_items:
+        name = item['name']
+        product_id = item['id']
+        description = item['description']
+        quantity = item['quantity']
+        text.append(textwrap.dedent(
+            f'''
+            {name}
+            {description}
+            '''))
+        amount += quantity
+        keyboard.append([InlineKeyboardButton(
+            f'Убрать из корзины {name}', callback_data=f'{product_id}')])
+    text.append(textwrap.dedent(
+        f'''
+        {amount}пицц в корзине на сумму {grand_total}
+        К оплате: {grand_total}
+        '''))
+    keyboard.append([InlineKeyboardButton(
+        'Оплатить', callback_data='pay')])
+    keyboard.append([InlineKeyboardButton('В меню', callback_data='back')])
+    return text, keyboard
+
+
 def handle_description(db, update: Update, context: CallbackContext):
     """Handle description of product."""
     callback = update.callback_query.data
     if callback == 'cart':
         client_id = update.effective_chat.id
-        cart_items = get_cart_items(client_id, db.get('token').decode("utf-8"))
-        cart_payload = get_cart(client_id, db.get('token').decode("utf-8"))
-        grand_total = cart_payload[
-            'meta']['display_price']['with_tax']['formatted']
-        amount = 0
-        text = []
-        keyboard = []
-        for item in cart_items:
-            name = item['name']
-            product_id = item['id']
-            description = item['description']
-            quantity = item['quantity']
-            text.append(textwrap.dedent(
-                f'''
-                {name}
-                {description}
-                '''))
-            amount += quantity
-            keyboard.append([InlineKeyboardButton(
-                f'Убрать из корзины {name}', callback_data=f'{product_id}')])
-        text.append(textwrap.dedent(
-            f'''
-            {amount}пицц в корзине на сумму {grand_total}
-            К оплате: {grand_total}
-            '''))
-        keyboard.append([InlineKeyboardButton(
-            'Оплатить', callback_data='pay')])
-        keyboard.append([InlineKeyboardButton('В меню', callback_data='back')])
+        text, keyboard = get_customer_cart(db, client_id)
         reply_markup = InlineKeyboardMarkup(keyboard)
         context.bot.send_message(
             chat_id=update.effective_chat.id,
@@ -203,7 +208,6 @@ def obtain_email(db, update: Update, context: CallbackContext):
             email=email,
             access_token=db.get('token').decode("utf-8")
         )
-        print(customer_id)
         if not customer_id:
             create_customer(email, db.get('token').decode("utf-8"))
         text = 'Хорошо, пришлите нам ваш адрес текстом или геолокацию.'
@@ -237,39 +241,126 @@ def obtain_geolocation(db, update: Update, context: CallbackContext):
         current_pos = get_coordinates(
             message.text, db.get('yandex_key').decode("utf-8"))
     if current_pos:
+        keyboard = [
+            [InlineKeyboardButton('Самовывоз', callback_data='pickup')],
+        ]
         pizzerias = get_all_pizzerias(
             access_token=db.get('token').decode("utf-8"),
         )
         pizzeria = get_closest_pizzeria(current_pos, pizzerias)
         address = pizzeria['address']
         distance = pizzeria['distance']
+        courier = pizzeria['courier']
+
+        lat, lon = current_pos
+        db.set('lat', lat)
+        db.set('lon', lon)
+        db.set('pizzeria', address)
+        db.set('courier', courier)
 
         if 0 <= distance <= 0.5:
             distance = distance / 1000
-            message = textwrap.dedent(f"Можете забрать пиццу неподалеку? \
-            Она всего в {distance:.0f} метрах от вас! \
-            Вот ее адрес: {address}.\n\n\
-            А можем и бесплатно доставить, нам не сложно с:")
+            message = textwrap.dedent(
+                f'''
+                Можете забрать пиццу неподалеку?
+                Она всего в {distance:.0f} метрах от вас!
+                Вот ее адрес: {address}.\n\n\
+                А можем и бесплатно доставить, нам не сложно с:
+                ''')
+            keyboard.append([InlineKeyboardButton(
+                'Доставка', callback_data='delivery')],)
         elif 0.5 < distance <= 5:
-            message = textwrap.dedent("Похоже, придется ехать до вас на самокате. \
-                Доставка будет стоить 100 рублей. Доставляем или самовывоз?")
+            message = textwrap.dedent(
+                '''
+                Похоже, придется ехать до вас на самокате.
+                Доставка будет стоить 100 рублей. Доставляем или самовывоз?
+                ''')
+            keyboard.append([InlineKeyboardButton(
+                'Доставка', callback_data='delivery')],)
         elif 5 < distance < 20:
-            message = textwrap.dedent("Похоже, придется ехать до вас на самокате. \
-                Доставка будет стоить 300 рублей. Доставляем или самовывоз?")
+            message = textwrap.dedent(
+                '''
+                Похоже, придется ехать до вас на самокате.
+                Доставка будет стоить 300 рублей. Доставляем или самовывоз?
+                ''')
+            keyboard.append([InlineKeyboardButton(
+                'Доставка', callback_data='delivery')],)
         else:
-            message = textwrap.dedent(f"Простите, но так далеко мы пиццу не доставим. \
-                Ближайшая пиццерия аж в {distance:.1f} километрах от вас!")
+            message = textwrap.dedent(
+                f'''
+                Простите, но так далеко мы пиццу не доставим.
+                Ближайшая пиццерия аж в {distance:.1f} километрах от вас!
+                ''')
         context.bot.send_message(
             chat_id=update.effective_chat.id,
             text=f'{message}',
+            reply_markup=InlineKeyboardMarkup([keyboard]),
         )
+        return 'HANDLE_DELIVERY'
     else:
         context.bot.send_message(
             chat_id=update.effective_chat.id,
             text='Не могу распознать адрес.',
         )
         return 'OBTAIN_GEOLOCATION'
-    return 'OBTAIN_EMAIL'
+
+
+def send_message_to_courier(context, lat, lon, message, courier_id):
+    context.bot.send_message(
+        chat_id=courier_id,
+        text=message,
+    )
+    context.bot.send_location(
+        chat_id=courier_id,
+        latitude=lat,
+        longitude=lon,
+    )
+
+
+def handle_delivery(db, update: Update, context: CallbackContext):
+    """Handle delivery choice."""
+    callback = update.callback_query.data
+    if callback == 'pickup':
+        address = db.get('pizzeria').decode("utf-8")
+        message = textwrap.dedent(
+            f'''
+            Вот адрес ближайшей пиццерии: {address}.
+            Будем Вас ждать!
+            '''
+        )
+    elif callback == 'delivery':
+        lat = db.get('lat').decode("utf-8")
+        lon = db.get('lon').decode("utf-8")
+        fields_values = {
+            'latitude_01': lat,
+            'longitude_01': lon,
+            'customer_id_01': update.effective_chat.id,
+        }
+        create_entry(
+            access_token=db.get('token').decode("utf-8"),
+            flow_slug='customer_address_01',
+            field_values=fields_values
+        )
+        cart, _ = get_customer_cart(db, update.effective_chat.id)
+        send_message_to_courier(
+            context=context,
+            lat=lat,
+            lon=lon,
+            message=cart,
+            courier_id=db.get('courier').decode("utf-8")
+        )
+        message = textwrap.dedent(
+            '''
+            Ваш заказ передан курьеру!
+            Ожидайте доставку.
+            '''
+        )
+
+    context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=message,
+        )
+    return 'START'
 
 
 def handle_users_reply(
@@ -298,6 +389,7 @@ def handle_users_reply(
         'HANDLE_CART': handle_cart,
         'OBTAIN_EMAIL': obtain_email,
         'OBTAIN_GEOLOCATION': obtain_geolocation,
+        'HANDLE_DELIVERY': handle_delivery,
     }
     state_handler = states_functions[user_state]
     try:
@@ -356,12 +448,18 @@ def main():
     tg_token = os.getenv("TELEGRAM_TOKEN")
     updater = Updater(tg_token)
     dispatcher = updater.dispatcher
-    dispatcher.add_handler(CallbackQueryHandler(handle_users_reply_partial))
+    dispatcher.add_handler(CallbackQueryHandler(
+        handle_users_reply_partial
+    ))
     dispatcher.add_handler(MessageHandler(
-        Filters.text, handle_users_reply_partial))
+        Filters.text, handle_users_reply_partial
+    ))
     dispatcher.add_handler(MessageHandler(
-        Filters.location, handle_users_reply_partial))
-    dispatcher.add_handler(CommandHandler('start', handle_users_reply_partial))
+        Filters.location, handle_users_reply_partial
+    ))
+    dispatcher.add_handler(CommandHandler(
+        'start', handle_users_reply_partial
+    ))
     dispatcher.add_error_handler(error_handler)
     updater.start_polling()
     updater.idle()

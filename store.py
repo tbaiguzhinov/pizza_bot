@@ -123,7 +123,7 @@ def check_customer(email, access_token):
     response.raise_for_status()
     payload = response.json()
     for customer in payload['data']:
-        if customer['email'] == email:
+        if customer['email'] == email.lower():
             return customer['id']
 
 
