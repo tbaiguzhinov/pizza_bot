@@ -34,7 +34,6 @@ def get_closest_pizzeria(coordinates, pizzerias):
     customer_lon, customer_lat = coordinates
     pizzerias_coords = []
     for pizzeria in pizzerias:
-        print(pizzeria)
         address = pizzeria['address']
         pizzeria_lon = pizzeria['longitude']
         pizzeria_lat = pizzeria['latitude']
