@@ -184,7 +184,7 @@ def handle_cart(db, update: Update, context: CallbackContext):
             chat_id=update.effective_chat.id,
             text='Пожалуйста, укажите Вашу почту:',
         )
-        return 'OBTAIN_GEOLOCATION'
+        return 'OBTAIN_EMAIL'
     else:
         remove_product_from_cart(
             product_id=callback,
@@ -268,23 +268,19 @@ def obtain_geolocation(db, update: Update, context: CallbackContext):
                 А можем и бесплатно доставить, нам не сложно с:
                 ''')
             keyboard.append([InlineKeyboardButton(
-                'Доставка', callback_data='delivery')],)
-        elif 0.5 < distance <= 5:
+                'Доставка', callback_data='delivery')])
+        elif 0.5 < distance < 20:
+            if distance <= 5:
+                delivery_price = 100
+            else:
+                delivery_price = 300
             message = textwrap.dedent(
-                '''
+                f'''
                 Похоже, придется ехать до вас на самокате.
-                Доставка будет стоить 100 рублей. Доставляем или самовывоз?
+                Доставка будет стоить {delivery_price} рублей. Доставляем или самовывоз?
                 ''')
             keyboard.append([InlineKeyboardButton(
-                'Доставка', callback_data='delivery')],)
-        elif 5 < distance < 20:
-            message = textwrap.dedent(
-                '''
-                Похоже, придется ехать до вас на самокате.
-                Доставка будет стоить 300 рублей. Доставляем или самовывоз?
-                ''')
-            keyboard.append([InlineKeyboardButton(
-                'Доставка', callback_data='delivery')],)
+                'Доставка', callback_data='delivery')])
         else:
             message = textwrap.dedent(
                 f'''
@@ -294,7 +290,7 @@ def obtain_geolocation(db, update: Update, context: CallbackContext):
         context.bot.send_message(
             chat_id=update.effective_chat.id,
             text=f'{message}',
-            reply_markup=InlineKeyboardMarkup([keyboard]),
+            reply_markup=InlineKeyboardMarkup(keyboard),
         )
         return 'HANDLE_DELIVERY'
     else:
@@ -309,11 +305,11 @@ def send_message_to_courier(context, lat, lon, message, courier_id):
     context.bot.send_message(
         chat_id=courier_id,
         text=message,
-    )
+    )   
     context.bot.send_location(
         chat_id=courier_id,
         latitude=lat,
-        longitude=lon,
+            longitude=lon,
     )
 
 
@@ -332,8 +328,8 @@ def handle_delivery(db, update: Update, context: CallbackContext):
         lat = db.get('lat').decode("utf-8")
         lon = db.get('lon').decode("utf-8")
         fields_values = {
-            'latitude_01': lat,
-            'longitude_01': lon,
+            'latitude_01': float(lat),
+            'longitude_01': float(lon),
             'customer_id_01': update.effective_chat.id,
         }
         create_entry(
@@ -341,12 +337,12 @@ def handle_delivery(db, update: Update, context: CallbackContext):
             flow_slug='customer_address_01',
             field_values=fields_values
         )
-        cart, _ = get_customer_cart(db, update.effective_chat.id)
+        text, _ = get_customer_cart(db, update.effective_chat.id)
         send_message_to_courier(
             context=context,
             lat=lat,
             lon=lon,
-            message=cart,
+            message=''.join(text),
             courier_id=db.get('courier').decode("utf-8")
         )
         message = textwrap.dedent(
@@ -392,20 +388,17 @@ def handle_users_reply(
         'HANDLE_DELIVERY': handle_delivery,
     }
     state_handler = states_functions[user_state]
-    try:
-        expiration = int(db.get('token_expiration').decode("utf-8"))
-        if expiration < time.time():
-            moltin_token = authenticate(
-                os.getenv('MOLTIN_CLIENT_ID'),
-                os.getenv('MOLTIN_CLIENT_SECRET')
-            )
-            db.set('token', moltin_token['token'])
-            db.set('token_expiration', moltin_token['expires'])
-            logger.error('Token updated')
-        next_state = state_handler(db, update, context)
-        db.set(chat_id, next_state)
-    except Exception as err:
-        print(err)
+    expiration = int(db.get('token_expiration').decode("utf-8"))
+    if expiration < time.time():
+        moltin_token = authenticate(
+            os.getenv('MOLTIN_CLIENT_ID'),
+            os.getenv('MOLTIN_CLIENT_SECRET')
+        )
+        db.set('token', moltin_token['token'])
+        db.set('token_expiration', moltin_token['expires'])
+        logger.error('Token updated')
+    next_state = state_handler(db, update, context)
+    db.set(chat_id, next_state)
 
 
 def error_handler(update: Update, context: CallbackContext):
