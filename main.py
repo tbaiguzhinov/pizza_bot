@@ -38,7 +38,7 @@ def get_product_keyboard(products):
     return InlineKeyboardMarkup(keyboard)
 
 
-def start(db, update: Update, context: CallbackContext):
+def start(db, update: Update, context: CallbackContext, job_queue):
     """Start bot."""
     products = get_all_products(db.get('token').decode("utf-8"))
     reply_markup = get_product_keyboard(products)
@@ -50,7 +50,7 @@ def start(db, update: Update, context: CallbackContext):
     return "HANDLE_MENU"
 
 
-def handle_menu(db, update: Update, context: CallbackContext):
+def handle_menu(db, update: Update, context: CallbackContext, job_queue):
     """Handle menu."""
     context.bot.delete_message(
         chat_id=update.effective_chat.id,
@@ -58,6 +58,14 @@ def handle_menu(db, update: Update, context: CallbackContext):
     )
     callback = update.callback_query.data
     if callback == 'cart':
+        client_id = update.effective_chat.id
+        text, keyboard = get_customer_cart(db, client_id)
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=''.join(text),
+            reply_markup=reply_markup,
+        )
         return 'HANDLE_CART'
     product_id = callback
     product = get_product(product_id, db.get('token').decode("utf-8"))
@@ -122,7 +130,12 @@ def get_customer_cart(db, client_id):
     return text, keyboard
 
 
-def handle_description(db, update: Update, context: CallbackContext):
+def handle_description(
+    db,
+    update: Update,
+    context: CallbackContext,
+    job_queue,
+):
     """Handle description of product."""
     callback = update.callback_query.data
     if callback == 'cart':
@@ -156,7 +169,7 @@ def handle_description(db, update: Update, context: CallbackContext):
         return "HANDLE_MENU"
 
 
-def handle_cart(db, update: Update, context: CallbackContext):
+def handle_cart(db, update: Update, context: CallbackContext, job_queue):
     """Handle user cart."""
     callback = update.callback_query.data
     if callback == 'back':
@@ -194,7 +207,7 @@ def handle_cart(db, update: Update, context: CallbackContext):
         return 'HANDLE_CART'
 
 
-def obtain_email(db, update: Update, context: CallbackContext):
+def obtain_email(db, update: Update, context: CallbackContext, job_queue):
     """Get user email."""
     email = update.message.text
     try:
@@ -228,7 +241,12 @@ def obtain_email(db, update: Update, context: CallbackContext):
         return 'OBTAIN_EMAIL'
 
 
-def obtain_geolocation(db, update: Update, context: CallbackContext):
+def obtain_geolocation(
+    db,
+    update: Update,
+    context: CallbackContext,
+    job_queue,
+):
     """Get users geolocation."""
     message = None
     if update.edited_message:
@@ -277,7 +295,8 @@ def obtain_geolocation(db, update: Update, context: CallbackContext):
             message = textwrap.dedent(
                 f'''
                 Похоже, придется ехать до вас на самокате.
-                Доставка будет стоить {delivery_price} рублей. Доставляем или самовывоз?
+                Доставка будет стоить {delivery_price} рублей.
+                Доставляем или самовывоз?
                 ''')
             keyboard.append([InlineKeyboardButton(
                 'Доставка', callback_data='delivery')])
@@ -305,15 +324,30 @@ def send_message_to_courier(context, lat, lon, message, courier_id):
     context.bot.send_message(
         chat_id=courier_id,
         text=message,
-    )   
+    )
     context.bot.send_location(
         chat_id=courier_id,
         latitude=lat,
-            longitude=lon,
+        longitude=lon,
     )
 
 
-def handle_delivery(db, update: Update, context: CallbackContext):
+def notify_of_delay(context):
+    ad = '*место для рекламы*'
+    delay_message = textwrap.dedent(
+        '''
+        Если пицца не доставлена, позвоните по номер +7 495 777 77 77.
+        ''',
+    )
+    message = f'Приятного аппетита! {ad}\
+               \n{delay_message}'
+    context.bot.send_message(
+        chat_id=context.job.context,
+        text=message
+    )
+
+
+def handle_delivery(db, update: Update, context: CallbackContext, job_queue):
     """Handle delivery choice."""
     callback = update.callback_query.data
     if callback == 'pickup':
@@ -351,18 +385,22 @@ def handle_delivery(db, update: Update, context: CallbackContext):
             Ожидайте доставку.
             '''
         )
+        delay_time = 60*60
+        job_queue.run_once(notify_of_delay, delay_time,
+                           context=update.effective_chat.id)
 
     context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=message,
-        )
+        chat_id=update.effective_chat.id,
+        text=message,
+    )
     return 'START'
 
 
 def handle_users_reply(
     db,
     update: Update,
-    context: CallbackContext
+    context: CallbackContext,
+    job_queue,
 ):
     """Handle user replies."""
     if update.message:
@@ -397,11 +435,11 @@ def handle_users_reply(
         db.set('token', moltin_token['token'])
         db.set('token_expiration', moltin_token['expires'])
         logger.error('Token updated')
-    next_state = state_handler(db, update, context)
+    next_state = state_handler(db, update, context, job_queue)
     db.set(chat_id, next_state)
 
 
-def error_handler(update: Update, context: CallbackContext):
+def error_handler(update: Update, context: CallbackContext, job_queue):
     """Handle errors."""
     logger.error(msg="Телеграм бот упал с ошибкой:", exc_info=context.error)
 
@@ -434,24 +472,24 @@ def main():
     db.set('token_expiration', moltin_token['expires'])
     db.set('yandex_key', os.getenv('YANDEX_KEY'))
 
-    expiration = moltin_token['expires']
-    logger.error(f'Token updated until {expiration}')
-    handle_users_reply_partial = partial(handle_users_reply, db)
-
     tg_token = os.getenv("TELEGRAM_TOKEN")
     updater = Updater(tg_token)
+
+    handle_users_reply_partial = partial(
+        handle_users_reply, db, job_queue=updater.job_queue)
+
     dispatcher = updater.dispatcher
     dispatcher.add_handler(CallbackQueryHandler(
         handle_users_reply_partial
     ))
     dispatcher.add_handler(MessageHandler(
-        Filters.text, handle_users_reply_partial
+        Filters.text, handle_users_reply_partial, pass_job_queue=True,
     ))
     dispatcher.add_handler(MessageHandler(
-        Filters.location, handle_users_reply_partial
+        Filters.location, handle_users_reply_partial, pass_job_queue=True,
     ))
     dispatcher.add_handler(CommandHandler(
-        'start', handle_users_reply_partial
+        'start', handle_users_reply_partial, pass_job_queue=True,
     ))
     dispatcher.add_error_handler(error_handler)
     updater.start_polling()
