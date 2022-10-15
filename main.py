@@ -9,16 +9,17 @@ import telegram
 from dotenv import load_dotenv
 from email_validator import (EmailNotValidError, EmailSyntaxError,
                              validate_email)
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import (
+    InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice, Update)
 from telegram.ext import (CallbackContext, CallbackQueryHandler,
                           CommandHandler, Filters, MessageHandler, Updater)
 
 from get_location import get_closest_pizzeria, get_coordinates
 from get_logger import TelegramLogsHandler
-from store import (add_to_cart, authenticate, create_customer,
-                   get_all_pizzerias, get_all_products, get_cart,
-                   get_cart_items, get_file, get_photo, get_product,
-                   remove_product_from_cart, check_customer, create_entry)
+from store import (
+    add_to_cart, authenticate, check_customer, create_customer, create_entry,
+    get_all_pizzerias, get_all_products, get_cart, get_cart_items, get_file,
+    get_photo, get_product, remove_product_from_cart)
 
 logger = logging.getLogger('Logger')
 
@@ -277,6 +278,7 @@ def obtain_geolocation(
         db.set('courier', courier)
 
         if 0 <= distance <= 0.5:
+            db.set('delivery_price', 0)
             distance = distance / 1000
             message = textwrap.dedent(
                 f'''
@@ -292,6 +294,7 @@ def obtain_geolocation(
                 delivery_price = 100
             else:
                 delivery_price = 300
+            db.set('delivery_price', delivery_price)
             message = textwrap.dedent(
                 f'''
                 Похоже, придется ехать до вас на самокате.
@@ -358,36 +361,80 @@ def handle_delivery(db, update: Update, context: CallbackContext, job_queue):
             Будем Вас ждать!
             '''
         )
+        context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=message,
+        )
+        return 'START'
     elif callback == 'delivery':
-        lat = db.get('lat').decode("utf-8")
-        lon = db.get('lon').decode("utf-8")
-        fields_values = {
-            'latitude_01': float(lat),
-            'longitude_01': float(lon),
-            'customer_id_01': update.effective_chat.id,
-        }
-        create_entry(
-            access_token=db.get('token').decode("utf-8"),
-            flow_slug='customer_address_01',
-            field_values=fields_values
+        client_id = update.effective_chat.id
+        context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text='Отправляем счет на оплату',
         )
-        text, _ = get_customer_cart(db, update.effective_chat.id)
-        send_message_to_courier(
-            context=context,
-            lat=lat,
-            lon=lon,
-            message=''.join(text),
-            courier_id=db.get('courier').decode("utf-8")
+        delivery_price = db.get('delivery_price').decode("utf-8")
+        cart_items = get_cart_items(client_id, db.get('token').decode("utf-8"))
+        prices = []
+        minimum_price = 100
+        for item in cart_items:
+            price = LabeledPrice(
+                label=item['name'],
+                amount=item['value']['amount']*minimum_price,
+            )
+            prices.append(price)
+        prices.append(LabeledPrice(
+                label='Досткавка',
+                amount=delivery_price*minimum_price,
+        ))
+        context.bot.send_invoice(
+            chat_id=update.effective_chat.id,
+            title='Ваш заказ',
+            description='Pizza delivery',
+            provider_token='381764678:TEST:43369',
+            payload='payload',
+            currency='RUB',
+            prices=prices,
         )
-        message = textwrap.dedent(
-            '''
-            Ваш заказ передан курьеру!
-            Ожидайте доставку.
-            '''
-        )
-        delay_time = 60*60
-        job_queue.run_once(notify_of_delay, delay_time,
-                           context=update.effective_chat.id)
+        return 'HANDLE_PAYMENT'
+        
+
+def handle_payment(
+    db,
+    update: Update,
+    context: CallbackContext,
+    job_queue,
+):
+    """Handle payment."""
+    lat = db.get('lat').decode("utf-8")
+    lon = db.get('lon').decode("utf-8")
+    fields_values = {
+        'latitude_01': float(lat),
+        'longitude_01': float(lon),
+        'customer_id_01': update.effective_chat.id,
+    }
+    create_entry(
+        access_token=db.get('token').decode("utf-8"),
+        flow_slug='customer_address_01',
+        field_values=fields_values
+    )
+    text, _ = get_customer_cart(db, update.effective_chat.id)
+    send_message_to_courier(
+        context=context,
+        lat=lat,
+        lon=lon,
+        message=''.join(text),
+        courier_id=db.get('courier').decode("utf-8")
+    )
+    message = textwrap.dedent(
+        '''
+        Спасибо за оплату!
+        Ваш заказ передан курьеру!
+        Ожидайте доставку.
+        '''
+    )
+    delay_time = 60*60
+    job_queue.run_once(notify_of_delay, delay_time,
+                        context=update.effective_chat.id)
 
     context.bot.send_message(
         chat_id=update.effective_chat.id,
@@ -424,6 +471,7 @@ def handle_users_reply(
         'OBTAIN_EMAIL': obtain_email,
         'OBTAIN_GEOLOCATION': obtain_geolocation,
         'HANDLE_DELIVERY': handle_delivery,
+        'HANDLE_PAYMENT': handle_payment,
     }
     state_handler = states_functions[user_state]
     expiration = int(db.get('token_expiration').decode("utf-8"))
@@ -439,7 +487,7 @@ def handle_users_reply(
     db.set(chat_id, next_state)
 
 
-def error_handler(update: Update, context: CallbackContext, job_queue):
+def error_handler(update: Update, context: CallbackContext):
     """Handle errors."""
     logger.error(msg="Телеграм бот упал с ошибкой:", exc_info=context.error)
 
@@ -480,13 +528,16 @@ def main():
 
     dispatcher = updater.dispatcher
     dispatcher.add_handler(CallbackQueryHandler(
-        handle_users_reply_partial
+        handle_users_reply_partial, pass_job_queue=True,
     ))
     dispatcher.add_handler(MessageHandler(
         Filters.text, handle_users_reply_partial, pass_job_queue=True,
     ))
     dispatcher.add_handler(MessageHandler(
         Filters.location, handle_users_reply_partial, pass_job_queue=True,
+    ))
+    dispatcher.add_handler(MessageHandler(
+        Filters.successful_payment, handle_users_reply_partial, pass_job_queue=True,
     ))
     dispatcher.add_handler(CommandHandler(
         'start', handle_users_reply_partial, pass_job_queue=True,
