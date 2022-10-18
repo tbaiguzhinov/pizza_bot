@@ -258,7 +258,8 @@ def obtain_geolocation(
         current_pos = (message.location.latitude, message.location.longitude)
     else:
         current_pos = get_coordinates(
-            message.text, db.get('yandex_key').decode("utf-8"))
+            message.text, db.get('yandex_key').decode("utf-8"),
+        )
     if current_pos:
         pizzerias = get_all_pizzerias(
             access_token=db.get('token').decode("utf-8"),
@@ -300,9 +301,13 @@ def obtain_geolocation(
                     Доставка будет стоить {delivery_price} рублей.
                     Доставляем или самовывоз?
                     ''')
+            def utf8len(s):
+                return len(s.encode('utf-8'))
+            callback_data=f'delivery;{lat};{lon};{courier};{delivery_price}'
+            print(utf8len(callback_data))
             keyboard.append([InlineKeyboardButton(
                 'Доставка',
-                callback_data=f'delivery;{lat};{lon};{address};{courier};{delivery_price}',
+                callback_data=callback_data,
             )])
         else:
             message = textwrap.dedent(
@@ -373,7 +378,7 @@ def handle_delivery(db, update: Update, context: CallbackContext, job_queue):
             chat_id=update.effective_chat.id,
             text='Отправляем счет на оплату',
         )
-        _, lat, lon, address, courier, delivery_price = callback
+        _, lat, lon, courier, delivery_price = callback
 
         fields_values = {
             'latitude_01': float(lat),
