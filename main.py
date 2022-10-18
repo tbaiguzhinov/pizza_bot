@@ -260,9 +260,6 @@ def obtain_geolocation(
         current_pos = get_coordinates(
             message.text, db.get('yandex_key').decode("utf-8"))
     if current_pos:
-        keyboard = [
-            [InlineKeyboardButton('Самовывоз', callback_data='pickup')],
-        ]
         pizzerias = get_all_pizzerias(
             access_token=db.get('token').decode("utf-8"),
         )
@@ -271,38 +268,42 @@ def obtain_geolocation(
         distance = pizzeria['distance']
         courier = pizzeria['courier']
 
-        lat, lon = current_pos
-        db.set('lat', lat)
-        db.set('lon', lon)
-        db.set('pizzeria', address)
-        db.set('courier', courier)
+        keyboard = [
+            [InlineKeyboardButton(
+                'Самовывоз',
+                callback_data=f'pickup;{address}',
+            )],
+        ]
 
-        if 0 <= distance <= 0.5:
-            db.set('delivery_price', 0)
-            distance = distance / 1000
-            message = textwrap.dedent(
-                f'''
-                Можете забрать пиццу неподалеку?
-                Она всего в {distance:.0f} метрах от вас!
-                Вот ее адрес: {address}.\n\n\
-                А можем и бесплатно доставить, нам не сложно с:
-                ''')
-            keyboard.append([InlineKeyboardButton(
-                'Доставка', callback_data='delivery')])
-        elif 0.5 < distance < 20:
-            if distance <= 5:
+        lat, lon = current_pos
+
+        if 0 <= distance < 20:
+            if distance <= 0.5:
+                delivery_price = 0
+            elif distance <= 5:
                 delivery_price = 100
             else:
                 delivery_price = 300
-            db.set('delivery_price', delivery_price)
-            message = textwrap.dedent(
-                f'''
-                Похоже, придется ехать до вас на самокате.
-                Доставка будет стоить {delivery_price} рублей.
-                Доставляем или самовывоз?
-                ''')
+            if distance <= 0.5:
+                distance = distance / 1000
+                message = textwrap.dedent(
+                    f'''
+                    Можете забрать пиццу неподалеку?
+                    Она всего в {distance:.0f} метрах от вас!
+                    Вот ее адрес: {address}.\n\n\
+                    А можем и бесплатно доставить, нам не сложно с:
+                    ''')
+            else:
+                message = textwrap.dedent(
+                    f'''
+                    Похоже, придется ехать до вас на самокате.
+                    Доставка будет стоить {delivery_price} рублей.
+                    Доставляем или самовывоз?
+                    ''')
             keyboard.append([InlineKeyboardButton(
-                'Доставка', callback_data='delivery')])
+                'Доставка',
+                callback_data=f'delivery;{lat};{lon};{address};{courier};{delivery_price}',
+            )])
         else:
             message = textwrap.dedent(
                 f'''
@@ -352,9 +353,9 @@ def notify_of_delay(context):
 
 def handle_delivery(db, update: Update, context: CallbackContext, job_queue):
     """Handle delivery choice."""
-    callback = update.callback_query.data
-    if callback == 'pickup':
-        address = db.get('pizzeria').decode("utf-8")
+    callback = update.callback_query.data.split(';')
+    if callback[0] == 'pickup':
+        address = callback[1]
         message = textwrap.dedent(
             f'''
             Вот адрес ближайшей пиццерии: {address}.
@@ -366,13 +367,33 @@ def handle_delivery(db, update: Update, context: CallbackContext, job_queue):
             text=message,
         )
         return 'START'
-    elif callback == 'delivery':
+    elif callback[0] == 'delivery':
         client_id = update.effective_chat.id
         context.bot.send_message(
             chat_id=update.effective_chat.id,
             text='Отправляем счет на оплату',
         )
-        delivery_price = db.get('delivery_price').decode("utf-8")
+        _, lat, lon, address, courier, delivery_price = callback
+
+        fields_values = {
+            'latitude_01': float(lat),
+            'longitude_01': float(lon),
+            'customer_id_01': update.effective_chat.id,
+        }
+        create_entry(
+            access_token=db.get('token').decode("utf-8"),
+            flow_slug='customer_address_01',
+            field_values=fields_values
+        )
+        text, _ = get_customer_cart(db, update.effective_chat.id)
+        send_message_to_courier(
+            context=context,
+            lat=lat,
+            lon=lon,
+            message=''.join(text),
+            courier_id=courier,
+        )
+
         cart_items = get_cart_items(client_id, db.get('token').decode("utf-8"))
         prices = []
         minimum_price = 100
@@ -383,8 +404,8 @@ def handle_delivery(db, update: Update, context: CallbackContext, job_queue):
             )
             prices.append(price)
         prices.append(LabeledPrice(
-                label='Досткавка',
-                amount=delivery_price*minimum_price,
+            label='Досткавка',
+            amount=int(delivery_price)*minimum_price,
         ))
         context.bot.send_invoice(
             chat_id=update.effective_chat.id,
@@ -396,7 +417,7 @@ def handle_delivery(db, update: Update, context: CallbackContext, job_queue):
             prices=prices,
         )
         return 'HANDLE_PAYMENT'
-        
+
 
 def handle_payment(
     db,
@@ -405,26 +426,6 @@ def handle_payment(
     job_queue,
 ):
     """Handle payment."""
-    lat = db.get('lat').decode("utf-8")
-    lon = db.get('lon').decode("utf-8")
-    fields_values = {
-        'latitude_01': float(lat),
-        'longitude_01': float(lon),
-        'customer_id_01': update.effective_chat.id,
-    }
-    create_entry(
-        access_token=db.get('token').decode("utf-8"),
-        flow_slug='customer_address_01',
-        field_values=fields_values
-    )
-    text, _ = get_customer_cart(db, update.effective_chat.id)
-    send_message_to_courier(
-        context=context,
-        lat=lat,
-        lon=lon,
-        message=''.join(text),
-        courier_id=db.get('courier').decode("utf-8")
-    )
     message = textwrap.dedent(
         '''
         Спасибо за оплату!
@@ -432,14 +433,13 @@ def handle_payment(
         Ожидайте доставку.
         '''
     )
-    delay_time = 60*60
-    job_queue.run_once(notify_of_delay, delay_time,
-                        context=update.effective_chat.id)
-
     context.bot.send_message(
         chat_id=update.effective_chat.id,
         text=message,
     )
+    delay_time = 60*60
+    job_queue.run_once(notify_of_delay, delay_time,
+                       context=update.effective_chat.id)
     return 'START'
 
 
@@ -537,7 +537,9 @@ def main():
         Filters.location, handle_users_reply_partial, pass_job_queue=True,
     ))
     dispatcher.add_handler(MessageHandler(
-        Filters.successful_payment, handle_users_reply_partial, pass_job_queue=True,
+        Filters.successful_payment,
+        handle_users_reply_partial,
+        pass_job_queue=True,
     ))
     dispatcher.add_handler(CommandHandler(
         'start', handle_users_reply_partial, pass_job_queue=True,
