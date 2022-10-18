@@ -301,10 +301,7 @@ def obtain_geolocation(
                     Доставка будет стоить {delivery_price} рублей.
                     Доставляем или самовывоз?
                     ''')
-            def utf8len(s):
-                return len(s.encode('utf-8'))
             callback_data=f'delivery;{lat};{lon};{courier};{delivery_price}'
-            print(utf8len(callback_data))
             keyboard.append([InlineKeyboardButton(
                 'Доставка',
                 callback_data=callback_data,
