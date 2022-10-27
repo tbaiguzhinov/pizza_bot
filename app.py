@@ -56,7 +56,28 @@ def send_menu(recipient_id):
     token = DB.get('token').decode('utf-8')
     pizzas = get_all_products(token)[:5]
     
-    elements = []
+    elements = [{
+        'title': 'Меню',
+        'image_url': url['link']['href'],
+        'subtitle': 'Здесь вы можете выбрать один из вариантов',
+        'buttons': [
+            {
+                'type':'postback',
+                'title':'Корзина',
+                'payload':'DEVELOPER_DEFINED_PAYLOAD'
+            },
+            {
+                'type':'postback',
+                'title':'Акции',
+                'payload':'DEVELOPER_DEFINED_PAYLOAD'
+            },
+            {
+                'type':'postback',
+                'title':'Сделать заказ',
+                'payload':'DEVELOPER_DEFINED_PAYLOAD'
+            }
+        ]
+    }]
     for pizza in pizzas:
         name = pizza['name']
         price = pizza['price'][0]['amount']
