@@ -9,9 +9,15 @@ from dotenv import load_dotenv
 
 import requests
 from flask import Flask, request
-from store import authenticate, get_all_products, get_file
+from store import authenticate, get_all_products, get_file, get_products_by_category_id
 
 app = Flask(__name__)
+
+
+FRONT_PAGE_PIZZAS = '77e66c39-6805-4afa-aeb7-92a6bce4e410'
+SPECIAL_PIZZAS = '99e7f4f4-a3a3-406c-9926-6274da515804'
+FILLING_PIZZAS = 'd54f4c66-5758-4e2a-a741-42f6605d12f3'
+SPICY_PIZZAS = '16ff3239-1a75-4c00-9d22-fac38746af4c'
 
 
 @app.route('/', methods=['GET'])
@@ -27,6 +33,37 @@ def verify():
     return 'Hello world', 200
 
 
+def handle_start(sender_id, message_text):
+    send_menu(sender_id)
+    
+    return "START"
+
+
+def handle_users_reply(sender_id, message_text):
+    expiration = int(DB.get('token_expiration').decode('utf-8'))
+    if expiration < time.time():
+        moltin_token = authenticate(
+            os.getenv('MOLTIN_CLIENT_ID'),
+            os.getenv('MOLTIN_CLIENT_SECRET')
+        )
+        DB.set('token', moltin_token['token'])
+        DB.set('token_expiration', moltin_token['expires'])
+    
+    states_functions = {
+        'START': handle_start,
+    }
+    recorded_state = DB.get(sender_id)
+    if not recorded_state or recorded_state.decode("utf-8") not in states_functions.keys():
+        user_state = "START"
+    else:
+        user_state = recorded_state.decode("utf-8")
+    if message_text == "/start":
+        user_state = "START"
+    state_handler = states_functions[user_state]
+    next_state = state_handler(sender_id, message_text)
+    DB.set(sender_id, next_state)
+
+
 @app.route('/', methods=['POST'])
 def webhook():
     '''
@@ -36,45 +73,38 @@ def webhook():
     if data['object'] == 'page':
         for entry in data['entry']:
             for messaging_event in entry['messaging']:
-                if messaging_event.get('message'):  # someone sent us a message
-                    sender_id = messaging_event['sender']['id']        # the facebook ID of the person sending you the message
-                    recipient_id = messaging_event['recipient']['id']  # the recipient's ID, which should be your page's facebook ID
-                    # message_text = 
+                if messaging_event.get('message'):
+                    sender_id = messaging_event['sender']['id']
+                    recipient_id = messaging_event['recipient']['id']
+                    message_text = messaging_event["message"]["text"]
+                    handle_users_reply(sender_id, message_text)
                     send_menu(sender_id)
     return 'ok', 200
 
 
 def send_menu(recipient_id):
-    expiration = int(DB.get('token_expiration').decode('utf-8'))
-    if expiration < time.time():
-        moltin_token = authenticate(
-            os.getenv('MOLTIN_CLIENT_ID'),
-            os.getenv('MOLTIN_CLIENT_SECRET')
-        )
-        DB.set('token', moltin_token['token'])
-        DB.set('token_expiration', moltin_token['expires'])
     token = DB.get('token').decode('utf-8')
-    pizzas = get_all_products(token)[:5]
-    
+    pizzas = get_products_by_category_id(token, FRONT_PAGE_PIZZAS)
+
     elements = [{
         'title': 'Меню',
-        'image_url': url['link']['href'],
+        'image_url': 'https://raw.githubusercontent.com/tbaiguzhinov/pizza_bot/facebook-bot/pizzeria_logo/Pizza-logo-design-template-Vector-PNG.png',
         'subtitle': 'Здесь вы можете выбрать один из вариантов',
         'buttons': [
             {
-                'type':'postback',
-                'title':'Корзина',
-                'payload':'DEVELOPER_DEFINED_PAYLOAD'
+                'type': 'postback',
+                'title': 'Корзина',
+                'payload': 'DEVELOPER_DEFINED_PAYLOAD'
             },
             {
-                'type':'postback',
-                'title':'Акции',
-                'payload':'DEVELOPER_DEFINED_PAYLOAD'
+                'type': 'postback',
+                'title': 'Акции',
+                'payload': 'DEVELOPER_DEFINED_PAYLOAD'
             },
             {
-                'type':'postback',
-                'title':'Сделать заказ',
-                'payload':'DEVELOPER_DEFINED_PAYLOAD'
+                'type': 'postback',
+                'title': 'Сделать заказ',
+                'payload': 'DEVELOPER_DEFINED_PAYLOAD'
             }
         ]
     }]
@@ -89,13 +119,27 @@ def send_menu(recipient_id):
             'image_url': url['link']['href'],
             'subtitle': description,
             'buttons': [
-                {
-                    'type':'postback',
-                    'title':'Добавить в корзину',
-                    'payload':'DEVELOPER_DEFINED_PAYLOAD'
-                }              
+                {'type': 'postback',
+                 'title': 'Добавить в корзину',
+                 'payload': 'DEVELOPER_DEFINED_PAYLOAD'},
             ]
-        })    
+        })
+    elements.append({
+        'title': 'Не нашли нужную пиццу?',
+        'image_url': 'https://primepizza.ru/uploads/position/large_0c07c6fd5c4dcadddaf4a2f1a2c218760b20c396.jpg',
+        'subtitle': 'Остальные пиццы можно посмотреть в одной из категорий',
+        'buttons': [
+            {'type': 'postback',
+             'title': 'Особые',
+             'payload': 'DEVELOPER_DEFINED_PAYLOAD'},
+            {'type': 'postback',
+             'title': 'Сытные',
+             'payload': 'DEVELOPER_DEFINED_PAYLOAD'},
+            {'type': 'postback',
+             'title': 'Острые',
+             'payload': 'DEVELOPER_DEFINED_PAYLOAD'},
+            ]
+    })
     params = {'access_token': os.environ['PAGE_ACCESS_TOKEN']}
     headers = {'Content-Type': 'application/json'}
     request_content = json.dumps({
@@ -104,12 +148,12 @@ def send_menu(recipient_id):
         },
         'message': {
             'attachment': {
-                'type':'template',
+                'type': 'template',
                 'payload': {
-                    'template_type':'generic',
+                    'template_type': 'generic',
                     'elements': elements,
                 }
-        }}
+            }}
     })
     response = requests.post(
         'https://graph.facebook.com/v2.6/me/messages',
@@ -131,7 +175,8 @@ def send_message(recipient_id, message_text):
             'text': message_text
         }
     })
-    response = requests.post('https://graph.facebook.com/v2.6/me/messages', params=params, headers=headers, data=request_content)
+    response = requests.post('https://graph.facebook.com/v2.6/me/messages',
+                             params=params, headers=headers, data=request_content)
     print(response.text)
     response.raise_for_status()
 
