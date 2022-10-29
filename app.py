@@ -1,3 +1,4 @@
+from email import message
 import os
 import redis
 from sqlite3 import dbapi2
@@ -14,10 +15,12 @@ from store import authenticate, get_all_products, get_file, get_products_by_cate
 app = Flask(__name__)
 
 
-FRONT_PAGE_PIZZAS = '77e66c39-6805-4afa-aeb7-92a6bce4e410'
-SPECIAL_PIZZAS = '99e7f4f4-a3a3-406c-9926-6274da515804'
-FILLING_PIZZAS = 'd54f4c66-5758-4e2a-a741-42f6605d12f3'
-SPICY_PIZZAS = '16ff3239-1a75-4c00-9d22-fac38746af4c'
+PIZZA_CATEGORIES = {
+    '77e66c39-6805-4afa-aeb7-92a6bce4e410': 'Основные',
+    '99e7f4f4-a3a3-406c-9926-6274da515804': 'Особые',
+    'd54f4c66-5758-4e2a-a741-42f6605d12f3': 'Сытные',
+    '16ff3239-1a75-4c00-9d22-fac38746af4c': 'Острые',
+}
 
 
 @app.route('/', methods=['GET'])
@@ -34,8 +37,10 @@ def verify():
 
 
 def handle_start(sender_id, message_text):
-    send_menu(sender_id)
-    
+    if message_text not in PIZZA_CATEGORIES:
+        send_menu(sender_id, category='77e66c39-6805-4afa-aeb7-92a6bce4e410')
+    else:
+        send_menu(sender_id, category=message_text)
     return "START"
 
 
@@ -48,7 +53,7 @@ def handle_users_reply(sender_id, message_text):
         )
         DB.set('token', moltin_token['token'])
         DB.set('token_expiration', moltin_token['expires'])
-    
+
     states_functions = {
         'START': handle_start,
     }
@@ -66,25 +71,26 @@ def handle_users_reply(sender_id, message_text):
 
 @app.route('/', methods=['POST'])
 def webhook():
-    '''
-    Основной вебхук, на который будут приходить сообщения от Facebook.
-    '''
     data = request.get_json()
     if data['object'] == 'page':
         for entry in data['entry']:
             for messaging_event in entry['messaging']:
                 if messaging_event.get('message'):
-                    sender_id = messaging_event['sender']['id']
-                    recipient_id = messaging_event['recipient']['id']
-                    message_text = messaging_event["message"]["text"]
-                    handle_users_reply(sender_id, message_text)
-                    send_menu(sender_id)
+                    handle_users_reply(
+                        messaging_event['sender']['id'],
+                        messaging_event["message"]["text"],
+                    )
+                elif messaging_event.get('postback'):
+                    handle_users_reply(
+                        messaging_event['sender']['id'],
+                        messaging_event['postback']['payload'],
+                    )
     return 'ok', 200
 
 
-def send_menu(recipient_id):
+def send_menu(recipient_id, category):
     token = DB.get('token').decode('utf-8')
-    pizzas = get_products_by_category_id(token, FRONT_PAGE_PIZZAS)
+    pizzas = get_products_by_category_id(token, category)
 
     elements = [{
         'title': 'Меню',
@@ -128,18 +134,15 @@ def send_menu(recipient_id):
         'title': 'Не нашли нужную пиццу?',
         'image_url': 'https://primepizza.ru/uploads/position/large_0c07c6fd5c4dcadddaf4a2f1a2c218760b20c396.jpg',
         'subtitle': 'Остальные пиццы можно посмотреть в одной из категорий',
-        'buttons': [
+        'buttons': []})
+    for pizza_category, pizza_name in PIZZA_CATEGORIES.items():
+        if pizza_category == category:
+            continue
+        elements[-1]['buttons'].append(
             {'type': 'postback',
-             'title': 'Особые',
-             'payload': 'DEVELOPER_DEFINED_PAYLOAD'},
-            {'type': 'postback',
-             'title': 'Сытные',
-             'payload': 'DEVELOPER_DEFINED_PAYLOAD'},
-            {'type': 'postback',
-             'title': 'Острые',
-             'payload': 'DEVELOPER_DEFINED_PAYLOAD'},
-            ]
-    })
+             'title': pizza_name,
+             'payload': pizza_category}
+        )
     params = {'access_token': os.environ['PAGE_ACCESS_TOKEN']}
     headers = {'Content-Type': 'application/json'}
     request_content = json.dumps({
@@ -177,7 +180,6 @@ def send_message(recipient_id, message_text):
     })
     response = requests.post('https://graph.facebook.com/v2.6/me/messages',
                              params=params, headers=headers, data=request_content)
-    print(response.text)
     response.raise_for_status()
 
 
