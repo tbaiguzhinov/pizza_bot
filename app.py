@@ -22,7 +22,7 @@ def verify():
             and request.args.get('hub.challenge'):
         if not request.args.get(
             'hub.verify_token'
-        ) == os.environ['VERIFY_TOKEN']:
+        ) == os.environ['FB_VERIFY_TOKEN']:
             return 'Verification token mismatch', 403
         return request.args['hub.challenge'], 200
 
@@ -190,7 +190,7 @@ def webhook():
 
 
 def send_message(recipient_id, message_text):
-    params = {'access_token': os.environ['PAGE_ACCESS_TOKEN']}
+    params = {'access_token': os.environ['FB_PAGE_ACCESS_TOKEN']}
     headers = {'Content-Type': 'application/json'}
     request_content = json.dumps({
         'recipient': {

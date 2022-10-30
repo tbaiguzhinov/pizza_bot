@@ -12,7 +12,7 @@ def send_menu(recipient_id, category, categories, db):
     elements = get_menu_first_page() + get_pizza_menu(pizzas, db) + \
         get_other_pizzas(category, categories)
 
-    params = {'access_token': os.environ['PAGE_ACCESS_TOKEN']}
+    params = {'access_token': os.environ['FB_PAGE_ACCESS_TOKEN']}
     headers = {'Content-Type': 'application/json'}
     request_content = json.dumps({
         'recipient': {

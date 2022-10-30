@@ -7,7 +7,7 @@ import requests
 def send_cart(recipient_id, grand_total, cart_items):
     elements = get_cart_first_page(grand_total) + get_cart_pizzas(cart_items)
 
-    params = {'access_token': os.environ['PAGE_ACCESS_TOKEN']}
+    params = {'access_token': os.environ['FB_PAGE_ACCESS_TOKEN']}
     headers = {'Content-Type': 'application/json'}
     request_content = json.dumps({
         'recipient': {

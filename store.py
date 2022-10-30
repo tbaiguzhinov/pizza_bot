@@ -312,7 +312,6 @@ def create_category(token, name, slug, description):
             }
         },
     )
-    print(response.text)
     response.raise_for_status()
     return response.json()
 
