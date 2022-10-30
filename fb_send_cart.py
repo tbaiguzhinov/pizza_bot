@@ -61,6 +61,8 @@ def get_cart_pizzas(pizzas):
         name = pizza['name']
         description = pizza['description']
         quantity = pizza['quantity']
+        product_id = pizza['product_id']
+        item_id = pizza['id']
         cart_pizzas.append({
             'title': f'{name} ({quantity} шт.)',
             'image_url': pizza['image']['href'],
@@ -68,10 +70,10 @@ def get_cart_pizzas(pizzas):
             'buttons': [
                 {'type': 'postback',
                  'title': 'Добавить еще одну',
-                 'payload': pizza['id']},
+                 'payload': f'add:{product_id}'},
                 {'type': 'postback',
                  'title': 'Убрать из корзины',
-                 'payload': pizza['id']},
+                 'payload': f'delete:{item_id}'},
             ]
         })
     return cart_pizzas

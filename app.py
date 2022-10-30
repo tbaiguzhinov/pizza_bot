@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 
 import requests
 from flask import Flask, request
-from store import authenticate, get_products_by_category_id, add_to_cart, get_all_categories, get_product, get_cart, get_cart_items
+from store import authenticate, add_to_cart, get_all_categories, get_product, get_cart, get_cart_items, remove_product_from_cart
 from fb_send_menu import send_menu
 from fb_send_cart import send_cart
 
@@ -74,6 +74,51 @@ def handle_menu(sender_id, message_text):
 
 
 def handle_cart(sender_id, message_text):
+    token = DB.get('token').decode('utf-8')
+    if message_text == 'back':
+        categories = get_all_categories(token=token)
+        for category in categories:
+            if category['name'] == 'Основные':
+                send_menu(sender_id, category=category['id'], db=DB)
+                return 'MENU'
+    elif ':' in message_text:
+        command, pizza_id = message_text.split(':')
+        if command == 'add':
+            add_to_cart(
+                client_id=f'facebook_{sender_id}',
+                product_id=pizza_id,
+                quantity=1,
+                access_token=token
+            )
+            product_name = get_product(
+                product_id=pizza_id,
+                access_token=token
+            )['name']
+            message = f'Еше одна пицца {product_name} добавлена в корзину'
+            send_message(sender_id, message)
+        else:
+            remove_product_from_cart(
+                product_id=pizza_id,
+                cart_id=f'facebook_{sender_id}',
+                access_token=token,
+            )
+            message = f'Пицца удалена из корзины'
+            send_message(sender_id, message)
+    cart_payload = get_cart(
+        client_id=f'facebook_{sender_id}',
+        access_token=token,
+    )
+    grand_total = cart_payload[
+        'meta']['display_price']['with_tax']['formatted']
+    cart_items = get_cart_items(
+        client_id=f'facebook_{sender_id}',
+        access_token=token,
+    )
+    send_cart(
+        recipient_id=sender_id,
+        grand_total=grand_total,
+        cart_items=cart_items,
+    )
     return 'CART'
 
 
