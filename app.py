@@ -1,23 +1,28 @@
-import os
-import redis
-import time
 import json
-from dotenv import load_dotenv
+import os
+import time
 
+import redis
 import requests
+from dotenv import load_dotenv
 from flask import Flask, request
-from store import authenticate, add_to_cart, get_all_categories, get_product, get_cart, get_cart_items, remove_product_from_cart
-from fb_send_menu import send_menu
-from fb_send_cart import send_cart
 
+from check_db import get_categories
+from fb_send_cart import send_cart
+from fb_send_menu import send_menu
+from store import (add_to_cart, authenticate, get_cart,
+                   get_cart_items, get_product, remove_product_from_cart)
 
 app = Flask(__name__)
 
 
 @app.route('/', methods=['GET'])
 def verify():
-    if request.args.get('hub.mode') == 'subscribe' and request.args.get('hub.challenge'):
-        if not request.args.get('hub.verify_token') == os.environ['VERIFY_TOKEN']:
+    if request.args.get('hub.mode') == 'subscribe' \
+            and request.args.get('hub.challenge'):
+        if not request.args.get(
+            'hub.verify_token'
+        ) == os.environ['VERIFY_TOKEN']:
             return 'Verification token mismatch', 403
         return request.args['hub.challenge'], 200
 
@@ -25,11 +30,15 @@ def verify():
 
 
 def handle_start(sender_id, message_text):
-    token = DB.get('token').decode('utf-8')
-    categories = get_all_categories(token=token)
+    categories = get_categories(db=DB)
     for category in categories:
         if category['name'] == 'Основные':
-            send_menu(sender_id, category=category['id'], db=DB)
+            send_menu(
+                sender_id,
+                category=category['id'],
+                categories=categories,
+                db=DB,
+            )
     return "MENU"
 
 
@@ -53,10 +62,15 @@ def handle_menu(sender_id, message_text):
         )
         return 'CART'
 
-    categories = get_all_categories(token=token)
+    categories = get_categories(db=DB)
     for pizza_category in categories:
         if message_text == pizza_category['id']:
-            send_menu(sender_id, category=message_text, db=DB)
+            send_menu(
+                sender_id,
+                category=message_text,
+                categories=categories,
+                db=DB,
+            )
             return 'MENU'
     add_to_cart(
         client_id=f'facebook_{sender_id}',
@@ -76,10 +90,15 @@ def handle_menu(sender_id, message_text):
 def handle_cart(sender_id, message_text):
     token = DB.get('token').decode('utf-8')
     if message_text == 'back':
-        categories = get_all_categories(token=token)
+        categories = get_categories(db=DB)
         for category in categories:
             if category['name'] == 'Основные':
-                send_menu(sender_id, category=category['id'], db=DB)
+                send_menu(
+                    sender_id,
+                    category=category['id'],
+                    categories=categories,
+                    db=DB,
+                )
                 return 'MENU'
     elif ':' in message_text:
         command, pizza_id = message_text.split(':')
@@ -102,7 +121,7 @@ def handle_cart(sender_id, message_text):
                 cart_id=f'facebook_{sender_id}',
                 access_token=token,
             )
-            message = f'Пицца удалена из корзины'
+            message = 'Пицца удалена из корзины'
             send_message(sender_id, message)
     cart_payload = get_cart(
         client_id=f'facebook_{sender_id}',
@@ -138,7 +157,9 @@ def handle_users_reply(sender_id, message_text):
         'CART': handle_cart,
     }
     recorded_state = DB.get(sender_id)
-    if not recorded_state or recorded_state.decode("utf-8") not in states_functions.keys():
+    if not recorded_state or recorded_state.decode(
+        "utf-8"
+    ) not in states_functions.keys():
         user_state = "START"
     else:
         user_state = recorded_state.decode("utf-8")
@@ -179,8 +200,12 @@ def send_message(recipient_id, message_text):
             'text': message_text
         }
     })
-    response = requests.post('https://graph.facebook.com/v2.6/me/messages',
-                             params=params, headers=headers, data=request_content)
+    response = requests.post(
+        'https://graph.facebook.com/v2.6/me/messages',
+        params=params,
+        headers=headers,
+        data=request_content,
+    )
     response.raise_for_status()
 
 

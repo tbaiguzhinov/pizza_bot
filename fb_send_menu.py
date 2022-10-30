@@ -1,16 +1,16 @@
 import json
 import os
+
 import requests
 
-from store import get_products_by_category_id, get_file, get_all_categories
+from check_db import get_menu, get_pizza_image
 
 
-def send_menu(recipient_id, category, db):
-    token = db.get('token').decode('utf-8')
-    pizzas = get_products_by_category_id(token, category)
+def send_menu(recipient_id, category, categories, db):
+    pizzas = get_menu(db=db, category=category)
 
     elements = get_menu_first_page() + get_pizza_menu(pizzas, db) + \
-        get_other_pizzas(category, db)
+        get_other_pizzas(category, categories)
 
     params = {'access_token': os.environ['PAGE_ACCESS_TOKEN']}
     headers = {'Content-Type': 'application/json'}
@@ -62,30 +62,25 @@ def get_menu_first_page():
 
 
 def get_pizza_menu(pizzas, db):
-    pizza_menus = []
-    token = db.get('token').decode('utf-8')
+    pizza_menu = []
     for pizza in pizzas:
         name = pizza['name']
         price = pizza['price'][0]['amount']
-        description = pizza['description']
-        file_id = pizza['relationships']['main_image']['data']['id']
-        url = get_file(file_id=file_id, access_token=token)
-        pizza_menus.append({
+        image_url = get_pizza_image(db=db, product_id=pizza['id'])
+        pizza_menu.append({
             'title': f'{name} ({price} р.)',
-            'image_url': url['link']['href'],
-            'subtitle': description,
+            'image_url': image_url,
+            'subtitle': pizza['description'],
             'buttons': [
                 {'type': 'postback',
                  'title': 'Добавить в корзину',
                  'payload': pizza['id']},
             ]
         })
-    return pizza_menus
+    return pizza_menu
 
 
-def get_other_pizzas(category, db):
-    token = db.get('token').decode('utf-8')
-    categories = get_all_categories(token=token)
+def get_other_pizzas(category, categories):
     pizza_menus = {
         'title': 'Не нашли нужную пиццу?',
         'image_url': 'https://primepizza.ru/uploads/position/large_0c07c6fd5c4dcadddaf4a2f1a2c218760b20c396.jpg',

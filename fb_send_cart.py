@@ -1,6 +1,7 @@
-import requests
-import os
 import json
+import os
+
+import requests
 
 
 def send_cart(recipient_id, grand_total, cart_items):
