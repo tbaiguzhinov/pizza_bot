@@ -60,7 +60,7 @@ def handle_menu(db, update: Update, context: CallbackContext, job_queue):
     callback = update.callback_query.data
     if callback == 'cart':
         client_id = update.effective_chat.id
-        text, keyboard = get_customer_cart(db, client_id)
+        text, keyboard = get_customer_cart(db, f'telegram_{client_id}')
         reply_markup = InlineKeyboardMarkup(keyboard)
         context.bot.send_message(
             chat_id=update.effective_chat.id,
@@ -100,8 +100,8 @@ def handle_menu(db, update: Update, context: CallbackContext, job_queue):
 
 
 def get_customer_cart(db, client_id):
-    cart_items = get_cart_items(client_id, db.get('token').decode("utf-8"))
-    cart_payload = get_cart(client_id, db.get('token').decode("utf-8"))
+    cart_items = get_cart_items(f'telegram_{client_id}', db.get('token').decode("utf-8"))
+    cart_payload = get_cart(f'telegram_{client_id}', db.get('token').decode("utf-8"))
     grand_total = cart_payload[
         'meta']['display_price']['with_tax']['formatted']
     amount = 0
@@ -141,7 +141,7 @@ def handle_description(
     callback = update.callback_query.data
     if callback == 'cart':
         client_id = update.effective_chat.id
-        text, keyboard = get_customer_cart(db, client_id)
+        text, keyboard = get_customer_cart(db, f'telegram_{client_id}')
         reply_markup = InlineKeyboardMarkup(keyboard)
         context.bot.send_message(
             chat_id=update.effective_chat.id,
@@ -152,7 +152,7 @@ def handle_description(
     elif callback != 'back':
         quantity, product_id = callback.split(',')
         client_id = update.effective_chat.id
-        add_to_cart(client_id, product_id,
+        add_to_cart(f'telegram_{client_id}', product_id,
                     int(quantity), db.get('token').decode("utf-8"))
         return "HANDLE_DESCRIPTION"
     else:
@@ -396,7 +396,7 @@ def handle_delivery(db, update: Update, context: CallbackContext, job_queue):
             courier_id=courier,
         )
 
-        cart_items = get_cart_items(client_id, db.get('token').decode("utf-8"))
+        cart_items = get_cart_items(f'telegram_{client_id}', db.get('token').decode("utf-8"))
         prices = []
         minimum_price = 100
         for item in cart_items:

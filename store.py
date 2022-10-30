@@ -345,3 +345,31 @@ def relate_product_to_category(token, productId, categoryId):
     )
     response.raise_for_status()
     return response.json()['data']
+
+
+def get_all_categories(token):
+    response = requests.get(
+        'https://api.moltin.com/v2/categories',
+        headers={
+            'Authorization': f'Bearer {token}'
+        },
+    )
+    response.raise_for_status()
+    return response.json()['data']
+
+
+def update_category(token, category, name):
+    response = requests.put(
+        f'https://api.moltin.com/v2/categories/{category}',
+        headers={
+            'Authorization': f'Bearer {token}',
+            'Content-Type': 'application/json',},
+        json={
+            'data': {
+                'type': 'category',
+                'id': category,
+                'name': name,
+            }
+        })
+    response.raise_for_status()
+    return response.json()['data']
