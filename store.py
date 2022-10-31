@@ -293,3 +293,86 @@ def get_all_pizzerias(access_token):
     )
     response.raise_for_status()
     return response.json()['data']
+
+
+def create_category(token, name, slug, description):
+    """Create category."""
+    response = requests.post(
+        'https://api.moltin.com/v2/categories',
+        headers={
+            'Authorization': f'Bearer {token}',
+        },
+        json={
+            'data': {
+                'type': 'category',
+                'name': name,
+                'slug': slug,
+                'description': description,
+                'status': "live"
+            }
+        },
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def get_products_by_category_id(token, category_id):
+    response = requests.get(
+        'https://api.moltin.com/v2/products',
+        headers={
+            'Authorization': f'Bearer {token}'
+        },
+        params=(
+            ('filter', f'eq(category.id,{category_id})'),
+        )
+    )
+    response.raise_for_status()
+    return response.json()['data']
+
+
+def relate_product_to_category(token, productId, categoryId):
+    response = requests.post(
+        f'https://api.moltin.com/v2/products/{productId}/relationships/categories',
+        headers={
+            'Authorization': f'Bearer {token}',
+            'Content-Type': 'application/json',
+        },
+        json={
+            'data': [
+                {
+                    'type': 'category',
+                    'id': categoryId
+                }, 
+            ],
+        }
+    )
+    response.raise_for_status()
+    return response.json()['data']
+
+
+def get_all_categories(token):
+    response = requests.get(
+        'https://api.moltin.com/v2/categories',
+        headers={
+            'Authorization': f'Bearer {token}'
+        },
+    )
+    response.raise_for_status()
+    return response.json()['data']
+
+
+def update_category(token, category, name):
+    response = requests.put(
+        f'https://api.moltin.com/v2/categories/{category}',
+        headers={
+            'Authorization': f'Bearer {token}',
+            'Content-Type': 'application/json', },
+        json={
+            'data': {
+                'type': 'category',
+                'id': category,
+                'name': name,
+            }
+        })
+    response.raise_for_status()
+    return response.json()['data']
