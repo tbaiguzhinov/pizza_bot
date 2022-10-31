@@ -323,7 +323,7 @@ def get_products_by_category_id(token, category_id):
             'Authorization': f'Bearer {token}'
         },
         params=(
-        ('filter', f'eq(category.id,{category_id})'),
+            ('filter', f'eq(category.id,{category_id})'),
         )
     )
     response.raise_for_status()
@@ -337,9 +337,13 @@ def relate_product_to_category(token, productId, categoryId):
             'Authorization': f'Bearer {token}',
             'Content-Type': 'application/json',
         },
-        json={'data': [
-                    {'type': 'category',
-                     'id': categoryId},],
+        json={
+            'data': [
+                {
+                    'type': 'category',
+                    'id': categoryId
+                }, 
+            ],
         }
     )
     response.raise_for_status()
@@ -362,7 +366,7 @@ def update_category(token, category, name):
         f'https://api.moltin.com/v2/categories/{category}',
         headers={
             'Authorization': f'Bearer {token}',
-            'Content-Type': 'application/json',},
+            'Content-Type': 'application/json', },
         json={
             'data': {
                 'type': 'category',

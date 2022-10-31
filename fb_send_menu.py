@@ -3,7 +3,7 @@ import os
 
 import requests
 
-from check_db import get_menu, get_pizza_image
+from get_cache import get_menu, get_pizza_image
 
 
 def send_menu(recipient_id, category, categories, db):

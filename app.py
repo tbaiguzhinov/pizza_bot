@@ -1,19 +1,33 @@
 import json
 import os
 import time
+from pkgutil import get_data
 
 import redis
 import requests
 from dotenv import load_dotenv
 from flask import Flask, request
 
-from check_db import get_categories
 from fb_send_cart import send_cart
 from fb_send_menu import send_menu
-from store import (add_to_cart, authenticate, get_cart,
-                   get_cart_items, get_product, remove_product_from_cart)
+from get_cache import get_categories
+from store import (add_to_cart, authenticate, get_cart, get_cart_items,
+                   get_product, remove_product_from_cart)
 
 app = Flask(__name__)
+
+
+_database = None
+
+def get_db_connection():
+    global _database
+    if not _database:
+        _database = redis.Redis(
+            host=os.getenv('DATABASE_HOST'),
+            port=os.getenv('DATABASE_PORT'),
+            password=os.getenv('DATABASE_PASSWORD')
+        )
+    return _database
 
 
 @app.route('/', methods=['GET'])
@@ -30,20 +44,20 @@ def verify():
 
 
 def handle_start(sender_id, message_text):
-    categories = get_categories(db=DB)
+    categories = get_categories(db=_database)
     for category in categories:
         if category['name'] == 'Основные':
             send_menu(
                 sender_id,
                 category=category['id'],
                 categories=categories,
-                db=DB,
+                db=_database,
             )
     return "MENU"
 
 
 def handle_menu(sender_id, message_text):
-    token = DB.get('token').decode('utf-8')
+    token = _database.get('token').decode('utf-8')
     if message_text == 'cart':
         cart_payload = get_cart(
             client_id=f'facebook_{sender_id}',
@@ -62,14 +76,14 @@ def handle_menu(sender_id, message_text):
         )
         return 'CART'
 
-    categories = get_categories(db=DB)
+    categories = get_categories(db=_database)
     for pizza_category in categories:
         if message_text == pizza_category['id']:
             send_menu(
                 sender_id,
                 category=message_text,
                 categories=categories,
-                db=DB,
+                db=_database,
             )
             return 'MENU'
     add_to_cart(
@@ -88,16 +102,16 @@ def handle_menu(sender_id, message_text):
 
 
 def handle_cart(sender_id, message_text):
-    token = DB.get('token').decode('utf-8')
+    token = _database.get('token').decode('utf-8')
     if message_text == 'back':
-        categories = get_categories(db=DB)
+        categories = get_categories(db=_database)
         for category in categories:
             if category['name'] == 'Основные':
                 send_menu(
                     sender_id,
                     category=category['id'],
                     categories=categories,
-                    db=DB,
+                    db=_database,
                 )
                 return 'MENU'
     elif ':' in message_text:
@@ -142,21 +156,21 @@ def handle_cart(sender_id, message_text):
 
 
 def handle_users_reply(sender_id, message_text):
-    expiration = int(DB.get('token_expiration').decode('utf-8'))
+    expiration = int(_database.get('token_expiration').decode('utf-8'))
     if expiration < time.time():
         moltin_token = authenticate(
             os.getenv('MOLTIN_CLIENT_ID'),
             os.getenv('MOLTIN_CLIENT_SECRET')
         )
-        DB.set('token', moltin_token['token'])
-        DB.set('token_expiration', moltin_token['expires'])
+        _database.set('token', moltin_token['token'])
+        _database.set('token_expiration', moltin_token['expires'])
 
     states_functions = {
         'START': handle_start,
         'MENU': handle_menu,
         'CART': handle_cart,
     }
-    recorded_state = DB.get(sender_id)
+    recorded_state = _database.get(sender_id)
     if not recorded_state or recorded_state.decode(
         "utf-8"
     ) not in states_functions.keys():
@@ -167,7 +181,7 @@ def handle_users_reply(sender_id, message_text):
         user_state = "START"
     state_handler = states_functions[user_state]
     next_state = state_handler(sender_id, message_text)
-    DB.set(sender_id, next_state)
+    _database.set(sender_id, next_state)
 
 
 @app.route('/', methods=['POST'])
@@ -211,19 +225,14 @@ def send_message(recipient_id, message_text):
 
 def main():
     load_dotenv()
-    global DB
-    DB = redis.Redis(
-        host=os.getenv('DATABASE_HOST'),
-        port=os.getenv('DATABASE_PORT'),
-        password=os.getenv('DATABASE_PASSWORD')
-    )
+    _database = get_db_connection()
     moltin_token = authenticate(
         os.getenv('MOLTIN_CLIENT_ID'),
         os.getenv('MOLTIN_CLIENT_SECRET')
     )
 
-    DB.set('token', moltin_token['token'])
-    DB.set('token_expiration', moltin_token['expires'])
+    _database.set('token', moltin_token['token'])
+    _database.set('token_expiration', moltin_token['expires'])
     app.run(debug=True)
 
 

@@ -1,10 +1,7 @@
 import json
-import os
-import redis
 
-from dotenv import load_dotenv
 from store import (get_all_categories, get_file, get_product,
-                   get_products_by_category_id, authenticate)
+                   get_products_by_category_id)
 
 
 def get_categories(db):
